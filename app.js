@@ -2,9 +2,16 @@ const express = require('express');
 const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
-const { Dropbox } = require('dropbox');
-const fetch = require('isomorphic-fetch');
-const TeraboxUploader = require('terabox-upload-tool');
+
+// Optional dependencies
+let Dropbox, fetch, TeraboxUploader;
+try {
+  Dropbox = require('dropbox').Dropbox;
+  fetch = require('isomorphic-fetch');
+} catch {}
+try {
+  TeraboxUploader = require('terabox-upload-tool');
+} catch {}
 
 const app = express();
 const upload = multer({ dest: 'uploads/' });
@@ -16,32 +23,45 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use(express.json());
 
-// Load credentials from env or config
-const dropboxAccessToken = process.env.DROPBOX_ACCESS_TOKEN || 'YOUR_DROPBOX_ACCESS_TOKEN';
-const dbx = new Dropbox({ accessToken: dropboxAccessToken, fetch });
-
-const teraboxCreds = {
-  ndus: process.env.TERABOX_NDUS || 'your_ndus',
-  appId: process.env.TERABOX_APPID || 'your_appid',
-  uploadId: process.env.TERABOX_UPLOADID || 'your_uploadid',
-  jsToken: process.env.TERABOX_JSTOKEN || 'your_jstoken',
-  browserId: process.env.TERABOX_BROWSERID || 'your_browserid',
-};
-let teraboxUploader;
-try {
-  teraboxUploader = new TeraboxUploader(teraboxCreds);
-} catch (e) {
-  console.error('TeraBox credentials missing or invalid:', e.message);
+// Ensure uploads folder exists
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir);
 }
 
-// TODO: Implement media.nz upload logic here (placeholder)
+// Dropbox setup
+const dropboxAccessToken = process.env.DROPBOX_ACCESS_TOKEN || '';
+const dbx = Dropbox && dropboxAccessToken
+  ? new Dropbox({ accessToken: dropboxAccessToken, fetch })
+  : null;
+
+// Terabox setup
+const teraboxCreds = {
+  ndus: process.env.TERABOX_NDUS || '',
+  appId: process.env.TERABOX_APPID || '',
+  uploadId: process.env.TERABOX_UPLOADID || '',
+  jsToken: process.env.TERABOX_JSTOKEN || '',
+  browserId: process.env.TERABOX_BROWSERID || '',
+};
+let teraboxUploader = null;
+if (
+  TeraboxUploader &&
+  teraboxCreds.ndus &&
+  teraboxCreds.appId &&
+  teraboxCreds.uploadId &&
+  teraboxCreds.jsToken &&
+  teraboxCreds.browserId
+) {
+  try {
+    teraboxUploader = new TeraboxUploader(teraboxCreds);
+  } catch (e) {
+    console.error('TeraBox credentials missing or invalid:', e.message);
+  }
+}
+
+// (Optional) Placeholder for media.nz
 async function uploadToMediaNz(filePath, fileName) {
   return { success: false, message: 'media.nz upload not implemented yet' };
-}
-
-// Ensure uploads folder exists
-if (!fs.existsSync(path.join(__dirname, 'uploads'))) {
-  fs.mkdirSync(path.join(__dirname, 'uploads'));
 }
 
 // Serve main HTML at root
@@ -49,6 +69,10 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'GitRenderFileManager.html'));
 });
 
+// Health check endpoint (optional, good for Render)
+app.get('/healthz', (req, res) => res.send('OK'));
+
+// Upload endpoint
 app.post('/upload', upload.array('files'), async (req, res) => {
   const provider = req.body.provider;
   const files = req.files || [];
@@ -61,6 +85,7 @@ app.post('/upload', upload.array('files'), async (req, res) => {
     }));
     res.json({ message: 'Uploaded to temporary storage.', links });
   } else if (provider === 'dropbox') {
+    if (!dbx) return res.status(500).json({ message: 'Dropbox not configured.' });
     for (let f of files) {
       try {
         const content = fs.readFileSync(f.path);
@@ -76,7 +101,7 @@ app.post('/upload', upload.array('files'), async (req, res) => {
     }
     res.json({ message: 'Uploaded to Dropbox.', links });
   } else if (provider === 'terabox') {
-    if (!teraboxUploader) return res.status(500).json({ message: 'TeraBox credentials missing.' });
+    if (!teraboxUploader) return res.status(500).json({ message: 'TeraBox not configured.' });
     for (let f of files) {
       try {
         const result = await teraboxUploader.uploadFile(f.path, null, '/filemanager-uploads');
@@ -111,5 +136,8 @@ app.post('/upload', upload.array('files'), async (req, res) => {
   }
 });
 
+// Start server
 const port = process.env.PORT || 3000;
-app.listen(port, () => console.log(`File manager running at http://localhost:${port}`));
+app.listen(port, () => {
+  console.log(`File manager running at http://localhost:${port}`);
+});
