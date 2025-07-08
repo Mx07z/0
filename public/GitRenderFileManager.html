@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Minimal File Manager</title>
+  <style>
+    body { font-family: sans-serif; max-width: 400px; margin: 30px auto; }
+    input, button, textarea, select { width: 100%; margin: 6px 0; }
+    #log { background: #f6f8fa; border: 1px solid #ddd; padding: 6px; min-height: 40px; }
+    #links { margin-top: 10px; }
+    #links ul { padding-left: 20px; }
+    .link-actions { display: inline; margin-left: 8px; }
+    .delete-btn { color: #c00; cursor: pointer; font-weight: bold; margin-left: 6px; }
+    .copy-btn { font-size: 0.9em; padding: 1px 6px; margin-left: 6px; }
+    .section-label { font-weight: bold; margin-top: 18px; display: block; }
+  </style>
+</head>
+<body>
+  <h2>File Manager</h2>
+  <input type="file" id="fileInput" multiple />
+  <textarea id="commitMsg" placeholder="Commit message (optional)"></textarea>
+  <label for="provider">Store with:</label>
+  <select id="provider">
+    <option value="local">Temporary Storage (Server)</option>
+    <option value="dropbox">Dropbox</option>
+    <option value="terabox">TeraBox</option>
+    <option value="medianz">media.nz</option>
+  </select>
+  <button id="uploadBtn">Upload & Get Links</button>
+  <div id="log"></div>
+  <div id="links"></div>
+
+  <span class="section-label">Custom Links:</span>
+  <div style="display:flex; align-items:center;">
+    <input id="customLinkInput" placeholder="Paste any file link (e.g. Google Drive)" />
+    <button onclick="addCustomLink()">Add</button>
+  </div>
+  <ul id="customLinksList"></ul>
+
+  <script>
+    // Restore last-used provider from localStorage
+    document.addEventListener('DOMContentLoaded', function () {
+      const providerSelect = document.getElementById('provider');
+      const savedProvider = localStorage.getItem('selectedProvider');
+      if (savedProvider) providerSelect.value = savedProvider;
+      providerSelect.addEventListener('change', function () {
+        localStorage.setItem('selectedProvider', providerSelect.value);
+      });
+      loadCustomLinks();
+    });
+
+    document.getElementById('uploadBtn').onclick = async function () {
+      const files = document.getElementById('fileInput').files;
+      const commitMsg = document.getElementById('commitMsg').value;
+      const provider = document.getElementById('provider').value;
+      document.getElementById('links').innerHTML = '';
+      if (!files.length) {
+        document.getElementById('log').textContent = 'Select files to upload.';
+        return;
+      }
+      document.getElementById('log').textContent = 'Uploading...';
+      const formData = new FormData();
+      for (let file of files) formData.append('files', file);
+      formData.append('commitMsg', commitMsg);
+      formData.append('provider', provider);
+      try {
+        const res = await fetch('/upload', { method: 'POST', body: formData });
+        if (!res.ok) throw new Error('Upload failed.');
+        const data = await res.json();
+        document.getElementById('log').textContent = data.message || 'Upload complete!';
+        if (data.links && data.links.length) {
+          document.getElementById('links').innerHTML =
+            '<b>Links:</b><ul>' +
+            data.links
+              .map(
+                (link) =>
+                  `<li><a href="${link.url}" target="_blank">${link.name}</a>${
+                    link.error ? ' <span style="color:red;">(' + link.error + ')</span>' : ''
+                  }</li>`
+              )
+              .join('') +
+            '</ul>';
+        }
+      } catch (e) {
+        document.getElementById('log').textContent = 'Error: ' + e.message;
+      }
+    };
+
+    // Custom links logic
+    function loadCustomLinks() {
+      const list = JSON.parse(localStorage.getItem('customLinks') || '[]');
+      renderCustomLinks(list);
+    }
+    function renderCustomLinks(list) {
+      const ul = document.getElementById('customLinksList');
+      ul.innerHTML = '';
+      list.forEach((obj, idx) => {
+        const li = document.createElement('li');
+        li.innerHTML = `<a href="${obj.url}" target="_blank">${obj.name}</a>
+          <span class="link-actions">
+            <button class="copy-btn" onclick="copyCustomLink('${obj.url.replace(/'/g, "\\'")}')">Copy</button>
+            <span class="delete-btn" onclick="deleteCustomLink(${idx})" title="Delete">&times;</span>
+          </span>`;
+        ul.appendChild(li);
+      });
+    }
+    function addCustomLink() {
+      const input = document.getElementById('customLinkInput');
+      let url = input.value.trim();
+      if (!url) return;
+      let name = url.replace(/^https?:\/\//, '').split(/[/?#]/)[0];
+      if (!/^https?:\/\//.test(url)) url = 'https://' + url;
+      const list = JSON.parse(localStorage.getItem('customLinks') || '[]');
+      list.push({ name, url });
+      localStorage.setItem('customLinks', JSON.stringify(list));
+      renderCustomLinks(list);
+      input.value = '';
+    }
+    function deleteCustomLink(idx) {
+      const list = JSON.parse(localStorage.getItem('customLinks') || '[]');
+      list.splice(idx, 1);
+      localStorage.setItem('customLinks', JSON.stringify(list));
+      renderCustomLinks(list);
+    }
+    function copyCustomLink(url) {
+      const temp = document.createElement('input');
+      temp.value = url;
+      document.body.appendChild(temp);
+      temp.select();
+      temp.setSelectionRange(0, 99999);
+      document.execCommand('copy');
+      document.body.removeChild(temp);
+      alert('Link copied!');
+    }
+  </script>
+</body>
+</html>

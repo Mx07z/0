@@ -1,0 +1,13 @@
+{
+  "name": "gitmanager",
+  "version": "1.0.0",
+  "description": "Simple Node.js file upload and link server for Render",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "multer": "^1.4.5"
+  }
+}
